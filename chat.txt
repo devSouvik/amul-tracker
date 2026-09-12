@@ -1,0 +1,526 @@
+Shared by souvik. This is a copy of a chat between Claude and souvik. Content may include unverified or unsafe content that does not represent the views of Anthropic. Shared snapshot may contain attachments and data not displayed here.
+https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets
+this is my website, but this website uses modern JS to load content. 
+I want to create an application, which will reach out this webpage and check for the availability for this item. 
+
+as soon as you open the page, it gives a modal/pop up, asking for a valid zip code, after that we need to select the zip code from a drop down.
+please visit this https://github.com/devSouvik/monitoring-bot/blob/main/index.js, you will get an idea, about how things work.
+I need to create a new application, which will not use telegram bot as of now. can be handled from the terminal CLI itself.
+do we still need to work with puppeter/playwright ?
+
+Read 3 pages, searched the web
+Read 3 pages, searched the web
+Good news — I found the actual mechanism. The Amul shop site doesn't need a headless browser at all; the pincode modal and stock check are backed by a plain JSON REST API. That repo's Puppeteer approach works but is way heavier than necessary. Here's what's actually happening under the hood, and then I'll build you a CLI tool that talks to the API directly.
+
+How shop.amul.com really works (reverse-engineered):
+
+GET https://shop.amul.com/en/browse/protein → gives you session cookies.
+GET https://shop.amul.com/user/info.js → gives a session/tid token.
+GET https://shop.amul.com/entity/pincode?...&filters[0][value]=<pincode> → resolves your pincode to a "substore" (region) — this is literally what that popup dropdown is doing.
+PUT https://shop.amul.com/entity/ms.settings/_/setPreferences with { data: { store: <substore alias> } } → "selects" that region, same as clicking the dropdown item.
+GET https://shop.amul.com/api/1/entity/ms.products?...&substore=<substoreId> → returns product JSON including available, inventory_quantity, alias, price, etc.
+So: no Puppeteer/Playwright needed. Just axios + a cookie jar (tough-cookie / axios-cookiejar-support). This will be far faster, lighter, and less flaky than driving a real browser.
+
+Let me build this as a CLI app for you.
+
+
+Created 3 files, ran a command
+Created 3 files, ran a command
+Now the CLI entry point:
+
+
+Created 2 files, ran 2 commands, shared files
+Created 2 files, ran 2 commands, shared files
+Answering your last question directly: no, you don't need Puppeteer/Playwright.
+
+The pincode modal and stock display are just a UI on top of an undocumented JSON API. I traced the exact requests (see the README for the full mapping) and built a CLI that hits them directly with axios + a cookie jar — no browser, no rendering, no waiting for selectors.
+
+What it does:
+
+Warms up a session (cookies) the same way the page load does.
+Looks up your pincode → resolves it to Amul's "substore" region (this is the dropdown).
+"Selects" that region via the same setPreferences call the click triggers.
+Queries the product API filtered by your product's alias, for that region, and reads available / inventory_quantity.
+Usage:
+
+bash
+npm install
+node cli.js -u "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" -p 302001 --watch --interval 90
+No Telegram — just terminal output, plus a native desktop notification (via node-notifier) the moment it flips to in-stock.
+
+Two honest caveats:
+
+This API is unofficial/reverse-engineered, so it can break silently if Amul changes it — I documented how to re-diagnose that in the README.
+I couldn't hit the live network from this sandbox to test it end-to-end, so I'd try a single non-watch run first (node cli.js -u ... -p ...) to confirm the endpoints still behave as captured before trusting --watch.
+
+Cli
+JS 
+
+Amulclient
+JS 
+
+Substores
+JS 
+
+Package
+Code · JSON 
+
+Readme
+Document · MD 
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302001
+node:internal/modules/cjs/loader:1433
+  throw err;
+  ^
+
+Error: Cannot find module './src/amulClient'
+Require stack:
+- /Users/souvik/Projects/amul-tracker/cli.js
+    at Function._resolveFilename (node:internal/modules/cjs/loader:1430:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1040:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1045:22)
+    at Function._load (node:internal/modules/cjs/loader:1216:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    at Module.require (node:internal/modules/cjs/loader:1527:12)
+    at require (node:internal/modules/helpers:147:16)
+    at Object.<anonymous> (/Users/souvik/Projects/amul-tracker/cli.js:4:56)
+    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+    at Object..js (node:internal/modules/cjs/loader:1913:10) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/Users/souvik/Projects/amul-tracker/cli.js' ]
+}
+
+Node.js v22.23.1
+
+That means the src/ folder didn't make it into your project — Node can't find src/amulClient.js relative to cli.js. Quick check:
+
+bash
+cd /Users/souvik/Projects/amul-tracker
+ls -la
+ls -la src
+You should see:
+
+amul-tracker/
+├── cli.js
+├── package.json
+├── README.md
+└── src/
+    ├── amulClient.js
+    └── substores.js
+If src/ is missing or empty, re-download/copy those two files into an src folder next to cli.js. If you downloaded the files individually rather than as a folder, that's the likely cause — the src/amulClient.js and src/substores.js files need to sit inside a src subdirectory, not next to cli.js.
+
+Once that's fixed, re-run:
+
+bash
+node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302001
+Let me know what you see in ls -la src and I'll help from there.
+
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302001
+Initializing session and resolving pincode 302001...
+Fatal error: Request failed with status code 401
+
+That 401 is happening on the very first request (GET /en/browse/protein) — before we ever get to the pincode step. That's the thing I flagged as untested: I couldn't hit the live site from my sandbox, and I trimmed the headers down from what I saw in the reference code. Amul's edge (WAF/CDN) is almost certainly bot-filtering on the exact browser-like header set, and a thin header list is enough to get a 401 even though the URL itself is public.
+
+Let me fix two things: restore the full header fingerprint, and add proper error diagnostics so if it fails again we can see exactly what the server said instead of guessing blind.
+
+
+Edited 2 files
+Edited 2 files
+Now let's route the other calls through the same diagnostic wrapper:
+
+
+Edited 2 files, ran 2 commands, shared files
+Edited 2 files, ran 2 commands, shared files
+Replace just this one file (src/amulClient.js) in your project and re-run the same command. Two changes:
+
+Full browser header fingerprint restored — I'd trimmed the headers down earlier (no sec-ch-ua, sec-fetch-*, cache-control, etc.), and Amul's edge/WAF looks like it 401s anything that doesn't look like a real Chrome request, even on a public page.
+Real error messages — if it still fails, you'll now get something like:
+   Request failed [initial page load] GET https://shop.amul.com/en/browse/protein -> status 401. Response body: ...
+instead of a bare status code, so we can actually see why (bot detection page, CAPTCHA challenge, rate limit, etc.) rather than guessing.
+
+Run it again and paste me the full error output (including the response body snippet) if it still fails — that'll tell us definitively whether it's a header/fingerprint issue or something Amul added (like a JS challenge, which would mean falling back to a real browser for just the cookie-bootstrap step, even if the rest stays pure API calls).
+
+
+Amulclient
+JS 
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302001
+Initializing session and resolving pincode 302001...
+Fatal error: Request failed [pincode lookup] GET https://shop.amul.com/entity/pincode?limit=50&filters[0][field]=pincode&filters[0][value]=302001&filters[0][operator]=regex -> status 401. Response body: Unauthorized
+
+That's useful — the very first request now succeeds (cookies get set), but the pincode lookup on /entity/pincode is rejected as Unauthorized even though we're using the same cookie jar. Looking back at the original reference implementation more carefully: it doesn't fully trust automatic cookie handling from the axios-cookiejar-support wrapper — it manually parses Set-Cookie into the jar and manually attaches a Cookie header on every single request as a belt-and-suspenders measure. I dropped that redundancy for cleaner code, but it looks like it's actually load-bearing here (likely a subtlety in how the wrapper resolves cookie domain/scheme matching). Let me fix that.
+
+
+Read a file, edited a file, ran a command
+Read a file, edited a file, ran a command
+Good — only the one intended low-level call remains. Let's copy this to outputs.
+
+
+Ran a command, shared files
+Ran a command, shared files
+Replace src/amulClient.js again and re-run. This version now explicitly reads cookies from the jar and attaches them as a Cookie header on every request (rather than trusting the wrapper's automatic attachment), and explicitly re-stores any Set-Cookie from each response back into the jar — matching what the original reference implementation does redundantly.
+
+If it still 401s on the pincode lookup, paste the output again — at that point it'd be worth checking whether the response from the very first page load actually contained a Set-Cookie header at all (some sites gate that behind a JS challenge that a plain HTTP client can't satisfy, in which case we'd need a one-time browser-based cookie bootstrap and then switch back to pure HTTP for everything else).
+
+
+Amulclient
+JS 
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017
+Initializing session and resolving pincode 302017...
+Fatal error: Request failed [pincode lookup] GET https://shop.amul.com/entity/pincode?limit=50&filters[0][field]=pincode&filters[0][value]=302017&filters[0][operator]=regex -> status 401. Response body: Unauthorized
+
+We're stuck guessing blind at this point — let's get real visibility into what's happening at the cookie/session level instead of continuing trial-and-error. I'll add a --debug flag that dumps the actual Set-Cookie from the first request, what's in the cookie jar, and the raw response headers on failure.
+
+
+Edited 3 files
+Edited 3 files
+Now wire up --debug in the CLI:
+
+
+Edited 3 files, ran 2 commands, shared files
+Edited 3 files, ran 2 commands, shared files
+Replace both cli.js and src/amulClient.js, then run with --debug:
+
+bash
+node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017 --debug
+Paste back the full output. What I most need to see:
+
+Did the first request (/en/browse/protein) actually get a Set-Cookie header? If set-cookie received: (none), that tells us the page load itself isn't establishing a session at all via plain HTTP — meaning Amul's session cookie is set through a JS-driven mechanism a plain client can't replicate, and we'd need a different bootstrap strategy (possibly one lightweight headless-browser step just to mint the cookie, then handing that cookie off to pure HTTP requests for everything after).
+What cookie string is actually being sent on the pincode lookup request — if it's empty or missing an expected cookie name, that confirms cookie #1.
+That single debug run should tell us definitively which of the two scenarios we're in, rather than continuing to guess at headers.
+
+
+Cli
+JS 
+
+Amulclient
+JS 
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017
+Initializing session and resolving pincode 302017...
+Fatal error: Request failed [pincode lookup] GET https://shop.amul.com/entity/pincode?limit=50&filters[0][field]=pincode&filters[0][value]=302017&filters[0][operator]=regex -> status 401. Response body: Unauthorized
+
+Looks like that run was without the --debug flag, so we didn't get the diagnostic output. Could you re-run with it added:
+
+bash
+node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017 --debug
+That should print [debug] lines to the terminal showing the cookies sent/received at each step — that's what will actually tell us whether the session cookie is being set at all. Paste the full output (including those debug lines) and we'll go from there.
+
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017 --debug
+Initializing session and resolving pincode 302017...
+[debug] -> GET https://shop.amul.com/en/browse/protein
+[debug]    cookie header sent: (none)
+[debug] <- 200 GET https://shop.amul.com/en/browse/protein
+[debug]    set-cookie received: ["jsessionid=s%3AFVWOoU4tO6%2BfRvvZ7QnGs4%2BK.VEoCR03GO1l0nvqR8Nf0lqN2tBps9ufUS6j2zD2U01Q; Path=/; Expires=Sat, 19 Sep 2026 16:33:24 GMT; HttpOnly; Secure","__cf_bm=WPERvRRS9DSiHb2eyK_SMx0I9lwo4w5EwkdtyaRJOUw-1789230804.6518157-1.0.1.1-kQH_KaYwZ80zKq11hpnbtNROzTrQqwS4O2NehVHxDtcsu2SCJefSsu4CNYopvCG6IJS28ofnDDkJnAt2HErpFTXFbN02h1n.o4Yr37rT6pZ.s5_q8UXVT1HGzNSDugQO; HttpOnly; SameSite=None; Secure; Path=/; Domain=shop.amul.com; Expires=Sat, 12 Sep 2026 17:03:24 GMT","_cfuvid=NoUVhZqJdA6rTIX80fVWC39XtaaHvvivTNKiirRevgg-1789230804.6518157-1.0.1.1-J_YaZphzDoGbeMCtSmEZ0faBJK_FApNMVj0XDnOZTBA; HttpOnly; SameSite=None; Secure; Path=/; Domain=shop.amul.com"]
+[debug] -> GET https://shop.amul.com/user/info.js?_v=1789230804816
+[debug]    cookie header sent: jsessionid=s%3AFVWOoU4tO6%2BfRvvZ7QnGs4%2BK.VEoCR03GO1l0nvqR8Nf0lqN2tBps9ufUS6j2zD2U01Q; __cf_bm=WPERvRRS9DSiHb2eyK_SMx0I9lwo4w5EwkdtyaRJOUw-1789230804.6518157-1.0.1.1-kQH_KaYwZ80zKq11hpnbtNROzTrQqwS4O2NehVHxDtcsu2SCJefSsu4CNYopvCG6IJS28ofnDDkJnAt2HErpFTXFbN02h1n.o4Yr37rT6pZ.s5_q8UXVT1HGzNSDugQO; _cfuvid=NoUVhZqJdA6rTIX80fVWC39XtaaHvvivTNKiirRevgg-1789230804.6518157-1.0.1.1-J_YaZphzDoGbeMCtSmEZ0faBJK_FApNMVj0XDnOZTBA
+[debug] <- 200 GET https://shop.amul.com/user/info.js?_v=1789230804816
+[debug]    set-cookie received: ["jsessionid=s%3AFVWOoU4tO6%2BfRvvZ7QnGs4%2BK.VEoCR03GO1l0nvqR8Nf0lqN2tBps9ufUS6j2zD2U01Q; Path=/; Expires=Sat, 19 Sep 2026 16:33:25 GMT; HttpOnly; Secure"]
+[debug] -> GET https://shop.amul.com/entity/pincode?limit=50&filters[0][field]=pincode&filters[0][value]=302017&filters[0][operator]=regex
+[debug]    cookie header sent: jsessionid=s%3AFVWOoU4tO6%2BfRvvZ7QnGs4%2BK.VEoCR03GO1l0nvqR8Nf0lqN2tBps9ufUS6j2zD2U01Q; __cf_bm=WPERvRRS9DSiHb2eyK_SMx0I9lwo4w5EwkdtyaRJOUw-1789230804.6518157-1.0.1.1-kQH_KaYwZ80zKq11hpnbtNROzTrQqwS4O2NehVHxDtcsu2SCJefSsu4CNYopvCG6IJS28ofnDDkJnAt2HErpFTXFbN02h1n.o4Yr37rT6pZ.s5_q8UXVT1HGzNSDugQO; _cfuvid=NoUVhZqJdA6rTIX80fVWC39XtaaHvvivTNKiirRevgg-1789230804.6518157-1.0.1.1-J_YaZphzDoGbeMCtSmEZ0faBJK_FApNMVj0XDnOZTBA
+[debug] <- ERROR 401 GET https://shop.amul.com/entity/pincode?limit=50&filters[0][field]=pincode&filters[0][value]=302017&filters[0][operator]=regex
+[debug]    response headers: {"date":"Sat, 12 Sep 2026 16:33:25 GMT","content-type":"text/plain","content-length":"12","connection":"close","server":"cloudflare","ms-request-id":"6aa57ed58c6c61aea2f8c588","cache-control":"no-cache, private, no-store, must-revalidate, max-stale=0, post-check=0, pre-check=0","x-permitted-cross-domain-policies":"none","x-content-type-options":"nosniff","x-frame-options":"SAMEORIGIN","x-xss-protection":"1","mode":"block","content-security-policy":"object-src 'self' data:","server-group":"atlas-test4","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"geolocation=(self), camera=(), microphone=(), usb=()","x-response-time":"41ms","strict-transport-security":"max-age=31536000; includeSubDomains; preload","cf-cache-status":"DYNAMIC","cf-ray":"a3a05053fd94f4d3-IXC"}
+[debug]    cookies in jar now: jsessionid=s%3AFVWOoU4tO6%2BfRvvZ7QnGs4%2BK.VEoCR03GO1l0nvqR8Nf0lqN2tBps9ufUS6j2zD2U01Q; __cf_bm=WPERvRRS9DSiHb2eyK_SMx0I9lwo4w5EwkdtyaRJOUw-1789230804.6518157-1.0.1.1-kQH_KaYwZ80zKq11hpnbtNROzTrQqwS4O2NehVHxDtcsu2SCJefSsu4CNYopvCG6IJS28ofnDDkJnAt2HErpFTXFbN02h1n.o4Yr37rT6pZ.s5_q8UXVT1HGzNSDugQO; _cfuvid=NoUVhZqJdA6rTIX80fVWC39XtaaHvvivTNKiirRevgg-1789230804.6518157-1.0.1.1-J_YaZphzDoGbeMCtSmEZ0faBJK_FApNMVj0XDnOZTBA
+Fatal error: Request failed [pincode lookup] GET https://shop.amul.com/entity/pincode?limit=50&filters[0][field]=pincode&filters[0][value]=302017&filters[0][operator]=regex -> status 401. Response body: Unauthorized
+
+That 401 Unauthorized — plain text, from the origin server itself, right after a __cf_bm cookie was issued — is the tell. __cf_bm is Cloudflare Bot Management's cookie. Cloudflare doesn't just check headers; it fingerprints the TLS/HTTP handshake itself (JA3/JA4), and Node's axios/TLS stack has a distinctly different fingerprint than real Chrome — no amount of header-spoofing fixes that. Amul's backend is rejecting the request because Cloudflare is telling it "this isn't a real browser," regardless of how browser-like the headers look.
+
+So I was wrong earlier: we do need a real browser engine after all — not because of DOM complexity, but specifically to get past Cloudflare's bot check. This matches why the original reference bot used Puppeteer for literally every step, not just the initial page load.
+
+Let me rebuild this properly with Puppeteer, keeping your clean CLI-only structure (still no Telegram).
+
+
+Ran a command, created a file
+Ran a command, created a file
+Now update the CLI to use this instead:
+
+
+Created a file, ran a command
+Created a file, ran a command
+Claude’s response was interrupted.
+which one would be lighter to use ? puppeter / playwright ?
+
+Puppeteer is lighter for this use case.
+
+Puppeteer	Playwright
+Browsers installed by default	Chromium only	Chromium + Firefox + WebKit (~3x the download, unless you restrict it)
+npm package + browser download	~170–280 MB (Chromium only)	~400–600 MB by default; can be trimmed to ~170–280 MB with npx playwright install chromium only
+Runtime memory per headless instance	Comparable — both are driving the same Chromium engine	Comparable
+API ergonomics	Slightly more manual waits	Better built-in auto-waiting, generally more robust selectors
+Since we only need one Chromium instance to get past Cloudflare's bot check — no cross-browser testing — Puppeteer is the leaner default choice, and it's also what the reference bot already used, so the DOM selectors I ported over (#locationWidgetModal, .product-details, etc.) are already proven against this exact site with it.
+
+If you ever wanted to switch to Playwright later for its nicer auto-waiting API, you'd just run npx playwright install chromium (not the full three-browser install) to keep it similarly light.
+
+I'll stick with Puppeteer and get cli.js recreated now (I'd deleted it mid-edit).
+
+
+CLI entry point rebuilt on Puppeteer, since Cloudflare bot detection ruled out pure HTTP calls
+CLI entry point rebuilt on Puppeteer, since Cloudflare bot detection ruled out pure HTTP calls
+Now update package.json (drop the HTTP-only deps, add puppeteer) and sync everything to outputs:
+
+
+Edited 2 files, ran 2 commands, shared files
+Edited 2 files, ran 2 commands, shared files
+This is a full replacement of your amul-tracker folder — 4 files: cli.js, src/browserCheck.js, package.json, README.md. Delete your old src/amulClient.js / src/substores.js if still present, drop these in, then:
+
+bash
+npm install
+node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017
+This drives a real headless Chrome (Puppeteer), typing the pincode and clicking the dropdown exactly like the original bot did, then reads the add-to-cart button state / sold-out banner from the DOM. Try it and paste the output — if a selector doesn't match (Amul may have tweaked class names since that reference repo was written), run with --debug and I'll help adjust src/browserCheck.js.
+
+
+Cli
+JS 
+
+Browsercheck
+JS 
+
+Package
+Code · JSON 
+
+Readme
+Document · MD 
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017
+[12/9/2026, 10:11:17 pm] Error checking stock: Waiting for selector #locationWidgetModal failed: Waiting failed: 15000ms exceeded
+
+That means the pincode typed and (presumably) a dropdown appeared, but clicking the option isn't actually closing the modal — likely either the click isn't landing on the right element, or Amul's markup for the dropdown/list has changed slightly since the reference bot was written. Let's not guess again — I'll add real diagnostics: log how many dropdown items appear, what they say, switch to Puppeteer's built-in .click() (more reliable than manual coordinate clicking), and auto-save a screenshot + the modal's HTML on failure so we can see exactly what's on the page.
+
+
+Edited a file
+Edited a file
+Also add debug logging around the initial modal detection and page navigation, so we can see the whole flow if it fails earlier too:
+
+
+Ran 2 commands, edited a file, shared files
+Ran 2 commands, edited a file, shared files
+Replace src/browserCheck.js and re-run with --debug:
+
+bash
+node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017 --debug
+This will now show you:
+
+How many dropdown options actually appeared and what text they contain
+Whether the click succeeded or fell back to coordinate-clicking
+If the modal still won't close, it'll dump the modal's HTML and save a screenshot to /tmp/amul-modal-debug-<timestamp>.png
+Paste the debug output (and if it saved a screenshot, feel free to describe or share what it shows) — that'll tell us definitively whether it's a stale selector, an intercepting overlay, or something else in the modal flow.
+
+
+Browsercheck
+JS 
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017 --debug
+[page] [Meta Pixel] - Call to "fbq('set', 'agent', undefined, '837925110304162');" with parameter "value" has an invalid value of "undefined"
+[page] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes">
+[debug] page loaded: https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets
+[debug] pincode modal present: true
+[debug] found 1 dropdown option(s): ["We are currently not serviceable for \"302017\" Click here to visit the corporate website of Amul."]
+[debug] Modal did not close after clicking an option.
+[debug] Modal HTML snapshot: <div class="modal fade show" id="locationWidgetModal" tabindex="-1" aria-labelledby="locationWidgetModalLabel" aria-modal="true" role="dialog" style="display: block;"><div class="modal-dialog modal-dialog-centered"><div class="modal-content bg-transparent"><div class="modal-header bg-light border-0"><h5 class="modal-title lh-1" id="locationWidgetModalLabel" style="font-size: 1.1rem;">Select Delivery Pincode</h5><!----></div><div class="modal-body bg-white"><div class="location-card new4"><div class="loaction-form"><form class="search-form" name="search" ms-name="search" data-gtm-form-interact-id="0"><div class="d-flex align-items-center"><div role="button" class="d-flex align-items-center border-0 text-nowrap btn btn-success" style="height: 45px;"><i class="bi bi-crosshair2 fs-6 me-2 lh-1"></i><div><span class="bigLocationBtn d-block w-100 fw-semibold p-0" type="button">Get my location</span></div></div><div class="oval-container"><div class="oval"><span class="separator-text"><div class="or">OR</div></span></div></div><div class="input-auto-substore position-relative flex-fill"><span class="input-group-text bg-transparent border-0 px-2 ps-3 position-absolute top-0 start-0 h-100" style="z-index: 2;"><i class="bi bi-search lh-1 opacity-75"></i></span><input id="search" type="text" autocomplete="off" class="form-control py-2 px-3 ms-fs-12 flex-grow-1 rounded-2 shadow-sm pac-target-input" placeholder="Enter Your Pincode" required="" data-gtm-form-interact-field-id="0"></div></div><!----><!----><!----><div id="automatic" class="list-group auto-search rounded-2 border border-dark border-opacity-10"><div href="#" class="list-group-item text-left searchproduct-name rounded-0 border-0 border-bottom p-0"><div class="p-3 py-2">Showing result for "302017" </div></div><div class="list-group-item text-left searchproduct-name rounded-0 border-0 border-bottom p-0"><a role="button" class="searchitem-name p-3 d-flex"><p class="item-name text-dark mb-0 fw-semibold fs-6">302017</p></a
+[debug] Screenshot saved to: /tmp/amul-modal-debug-1789231498208.png
+[12/9/2026, 10:14:39 pm] Error checking stock: Pincode modal did not close after selecting a location - the site's markup or selectors may have changed. See screenshot at /tmp/amul-modal-debug-1789231498208.png and the [debug] logs above.
+
+ok, i tried the website manually, it did day "We are currently not serviceable for \"302017\" Click here to visit the corporate website of Amul." but after a second the zip code came in a list to be selected
+That output nails it — the first .list-group-item we grabbed was actually the transient "not serviceable" message, not a real selectable result. The real result list ("Showing result for…" + a clickable pincode item, structured as <a class="searchitem-name"> inside a .list-group-item) only populates a second later via an async lookup. We need to wait specifically for that .searchitem-name anchor to show up, not just any .list-group-item.
+
+
+Ran 2 commands, edited a file, shared files
+Ran 2 commands, edited a file, shared files
+Replace src/browserCheck.js again and re-run:
+
+bash
+node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017 --debug
+It now waits specifically for the real <a class="searchitem-name"> result to appear (up to 12s) instead of grabbing the first thing in the dropdown container, which is what was tricking it into clicking the transient "not serviceable" message. Let me know what comes back — this should get you past the modal now.
+
+
+Browsercheck
+JS 
+souvik@Souviks-MacBook amul-tracker % node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017 --debug
+[debug] page loaded: https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets
+[debug] pincode modal present: true
+[page] [Meta Pixel] - Call to "fbq('set', 'agent', undefined, '837925110304162');" with parameter "value" has an invalid value of "undefined"
+[page] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes">
+[debug] found 1 dropdown option(s): ["We are currently not serviceable for \"302017\" Click here to visit the corporate website of Amul."]
+[debug] Modal did not close after clicking an option.
+[debug] Modal HTML snapshot: <div class="modal fade show" id="locationWidgetModal" tabindex="-1" aria-labelledby="locationWidgetModalLabel" aria-modal="true" role="dialog" style="display: block;"><div class="modal-dialog modal-dialog-centered"><div class="modal-content bg-transparent"><div class="modal-header bg-light border-0"><h5 class="modal-title lh-1" id="locationWidgetModalLabel" style="font-size: 1.1rem;">Select Delivery Pincode</h5><!----></div><div class="modal-body bg-white"><div class="location-card new4"><div class="loaction-form"><form class="search-form" name="search" ms-name="search" data-gtm-form-interact-id="0"><div class="d-flex align-items-center"><div role="button" class="d-flex align-items-center border-0 text-nowrap btn btn-success" style="height: 45px;"><i class="bi bi-crosshair2 fs-6 me-2 lh-1"></i><div><span class="bigLocationBtn d-block w-100 fw-semibold p-0" type="button">Get my location</span></div></div><div class="oval-container"><div class="oval"><span class="separator-text"><div class="or">OR</div></span></div></div><div class="input-auto-substore position-relative flex-fill"><span class="input-group-text bg-transparent border-0 px-2 ps-3 position-absolute top-0 start-0 h-100" style="z-index: 2;"><i class="bi bi-search lh-1 opacity-75"></i></span><input id="search" type="text" autocomplete="off" class="form-control py-2 px-3 ms-fs-12 flex-grow-1 rounded-2 shadow-sm pac-target-input" placeholder="Enter Your Pincode" required="" data-gtm-form-interact-field-id="0"></div></div><!----><!----><!----><div id="automatic" class="list-group auto-search rounded-2 border border-dark border-opacity-10"><div href="#" class="list-group-item text-left searchproduct-name rounded-0 border-0 border-bottom p-0"><div class="p-3 py-2">Showing result for "302017" </div></div><div class="list-group-item text-left searchproduct-name rounded-0 border-0 border-bottom p-0"><a role="button" class="searchitem-name p-3 d-flex"><p class="item-name text-dark mb-0 fw-semibold fs-6">302017</p></a
+[debug] Screenshot saved to: /tmp/amul-modal-debug-1789231688526.png
+[12/9/2026, 10:17:50 pm] Error checking stock: Pincode modal did not close after selecting a location - the site's markup or selectors may have changed. See screenshot at /tmp/amul-modal-debug-1789231688526.png and the [debug] logs above.
+
+That's odd — the log text "found 1 dropdown option(s)" doesn't exist anywhere in the version I just gave you (I renamed that message to "found N selectable result(s)" and changed the selector entirely to target .searchitem-name). This strongly suggests the file on your machine is still the previous version of browserCheck.js, not the one I just sent.
+
+Can you double check on your end:
+
+bash
+grep -n "searchitem-name" src/browserCheck.js
+If that returns nothing, the new file didn't actually get saved/replaced — please re-download/copy it again and overwrite src/browserCheck.js.
+If it does show matches, paste the output so I can see what's actually in the file — there may be a path issue (e.g. edits landing in a different amul-tracker copy than the one you're running from).
+Once we confirm the right file is in place, re-run with --debug again.
+
+if I provide you the cookies which the browser exactly uses, will you be able to set those cookies to this browser and then try to access the web page ? will this solve the problem ? if this works then we won;t have to select that zip code
+
+Yes — that would genuinely help, and it's a good instinct. Here's the nuance:
+
+What cookies would and wouldn't fix:
+
+The Cloudflare bot-detection problem is already solved just by switching to Puppeteer (it's a real Chrome, so it gets its own valid __cf_bm automatically — no need to import that one).
+What cookies would fix: Amul's server remembers your selected pincode/region against your session (jsessionid). If you manually pick pincode 302017 once in your real browser, then export that session cookie and inject it into our Puppeteer page before navigating, the server should recognize that session already has a region selected — and the modal simply won't appear. That skips the flaky typing/clicking entirely.
+The trade-off: that jsessionid cookie had a ~7-day expiry in the earlier debug log. So this isn't "set it once forever" — you'd need to re-export it roughly weekly (or we could add logic to detect when it's expired and re-prompt).
+
+Before we go that route, though — I want to flag something in your last output: the log still says "found 1 dropdown option(s)", but that exact message doesn't exist in the version of browserCheck.js I gave you (I renamed it to "found N selectable result(s)" and changed the selector to target .searchitem-name). That strongly suggests your file didn't actually get replaced. Can you run:
+
+bash
+grep -n "searchitem-name" src/browserCheck.js
+If that comes back empty, the cookie approach won't help either, since the bug you're hitting is unrelated — it's just an old file being executed. Let's confirm that first, then I'll add cookie-import support as a genuine reliability improvement on top of the fixed click logic (best of both: skip the modal when a valid session cookie is supplied, fall back to typing/clicking when it isn't or has expired).
+
+[
+    {
+        "domain": ".amul.com",
+        "expirationDate": 1797007758,
+        "hostOnly": false,
+        "httpOnly": false,
+        "name": "_gcl_au",
+        "path": "/",
+        "sameSite": null,
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "1.1.394316485.1789231758"
+    },
+    {
+        "domain": "shop.amul.com",
+        "expirationDate": 1789836563.102559,
+        "hostOnly": true,
+        "httpOnly": true,
+        "name": "jsessionid",
+        "path": "/",
+        "sameSite": null,
+        "secure": true,
+        "session": false,
+        "storeId": null,
+        "value": "s%3AxhfzpzLhwTUuzdHZ1kQM7yJJ.GIX0jV8MEKpOeoFqNy0Bi6LA06BwijQ%2BnVp8hgHCSP8"
+    },
+    {
+        "domain": ".amul.com",
+        "expirationDate": 1823791762.098295,
+        "hostOnly": false,
+        "httpOnly": false,
+        "name": "_ga_E69VZ8HPCN",
+        "path": "/",
+        "sameSite": null,
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "GS2.1.s1789231758$o1$g1$t1789231762$j56$l0$h1636532733"
+    },
+    {
+        "domain": ".shop.amul.com",
+        "hostOnly": false,
+        "httpOnly": true,
+        "name": "_cfuvid",
+        "path": "/",
+        "sameSite": "no_restriction",
+        "secure": true,
+        "session": true,
+        "storeId": null,
+        "value": "GD0HzvS6T_7UXuvd2hqEVC6uZW67nN3u5MRmbyEU7VY-1789231758.0383956-1.0.1.1-i3Si9PwGbrmVFPPND6MXfk3wtzRoqPjpFw0uIm7FULE"
+    },
+    {
+        "domain": ".shop.amul.com",
+        "expirationDate": 1789233558.087323,
+        "hostOnly": false,
+        "httpOnly": true,
+        "name": "__cf_bm",
+        "path": "/",
+        "sameSite": "no_restriction",
+        "secure": true,
+        "session": false,
+        "storeId": null,
+        "value": "NUAnKDvTpB9ZH4NFcydP.fKjH.KSqt3yYUwABsduXvA-1789231758.0383956-1.0.1.1-o3DYaXAZv12o8I8lyf2o5BNitmdASCs4BLO0RF_6wmRm1eSoF5pOPThGC49MgOHV2V3hpfZypF1LnX8yvMeG6xw6QqixZskTwqhsfst.Lt43vDFaIwKWVZgQpTaFRnve"
+    },
+    {
+        "domain": ".amul.com",
+        "expirationDate": 1823791762.034884,
+        "hostOnly": false,
+        "httpOnly": false,
+        "name": "_ga",
+        "path": "/",
+        "sameSite": null,
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "GA1.1.354618018.1785649089"
+    }
+]
+
+i used a cookie inspector and found these cookies for the page
+Yes — loading a valid jsessionid (the cookie that ties to Amul's server-side session, which remembers your selected pincode) should let us skip typing/clicking the modal entirely. Two things worth doing properly here:
+
+Import your exported cookie file once, converting it to the format Puppeteer expects.
+Auto-persist cookies after every successful run, so after the very first run (whether via your import or via the modal flow), every future run reuses the saved session — no re-importing needed until it actually expires (jsessionid looked ~7 days, __cf_bm is short-lived and Puppeteer will mint a fresh one itself regardless).
+Let me build that in.
+
+
+Cookie import/persistence helper - converts browser-exported cookies to Puppeteer's format and caches session cookies between runs
+Cookie import/persistence helper - converts browser-exported cookies to Puppeteer's format and caches session cookies between runs
+Now wire cookie loading/saving into browserCheck.js:
+
+
+Edited a file
+Edited a file
+Now save cookies after a successful check, and return them:
+
+
+Edited a file
+Edited a file
+Now update the CLI to accept a one-time cookie import file:
+
+
+Edited 4 files
+Edited 4 files
+Now let's convert the exact cookies you pasted into a ready-to-use file for you, and verify everything syntax-checks:
+
+
+Ran 2 commands
+Ran 2 commands
+Conversion works correctly. Now let's sync everything to outputs:
+
+
+Ran 2 commands, edited a file, shared files
+Ran 2 commands, edited a file, shared files
+Four files updated: cli.js, src/browserCheck.js, src/cookies.js (new), README.md. Replace all of them in your project (make sure src/cookies.js actually gets added, not just the two you already had).
+
+Save your pasted cookies to a file, e.g. exported-cookies.json, then run:
+
+bash
+node cli.js --url "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets" --pincode 302017 --import-cookies exported-cookies.json --debug
+One thing to be aware of: for the modal to actually be skipped, the jsessionid you exported needs to belong to a browser session where you'd already completed pincode selection (i.e., you'd typed 302017 and clicked the result, and the page was already showing that region) at the moment you exported it — not just a session that was sitting on the "not serviceable" message. If that cookie was captured before you finished selecting, the modal will still appear, and it'll fall through to the normal type/click flow (which should now work correctly with the earlier fix).
+
+Either way, whichever path succeeds, cookies get auto-saved to .amul-session-cookies.json afterward — so from the second run onward you shouldn't need --import-cookies at all, until that session eventually expires.
+
+
+Cli
+JS 
+
+Browsercheck
+JS 
+
+Cookies
+JS 
+
+Readme
+Document · MD 
+Files hidden in shared chats
+check this
+
+Good news: it worked end-to-end this time — pincode got selected, cookies got saved, and it printed a status. But two things to fix:
+
+productName came back as generic "Product" — the DOM selector I used for the product name/stock badges is stale (matches your earlier debug logs showing lots of markup drift on this site).
+Buried in that CSP report-only spam is something much more useful: the page's own JavaScript made this exact call:
+   /api/1/entity/ms.products?q=%7B%22alias%22:%22amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets%22%7D&limit=1
+That's the real, current API contract the site itself uses (q={"alias": "..."}) — simpler than what I found in the older reference repo. Since this fetch runs from inside the real Chrome page (same cookies, same TLS fingerprint), we can call it ourselves via page.evaluate(() => fetch(...)) and read structured JSON directly — far more reliable than scraping CSS classes that keep changing.
+
+Let me switch stock-reading over to that.
+
+
+Edited a file
+Edited a file
+Now let's view the current stock-reading section to replace it cleanly:
+
+
+Read a file, edited a file
+Read a file, edited a file

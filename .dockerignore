@@ -1,0 +1,7 @@
+node_modules
+.git
+.env
+.amul-session-cookies.json
+chat.txt
+webpageHTMLElement.html
+*.png

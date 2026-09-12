@@ -1,0 +1,21 @@
+{
+  "name": "amul-stock-cli",
+  "version": "1.0.0",
+  "description": "CLI tool to check Amul shop.amul.com product stock availability by pincode, without a headless browser.",
+  "main": "cli.js",
+  "type": "commonjs",
+  "bin": {
+    "amul-stock": "./cli.js"
+  },
+  "scripts": {
+    "start": "node cli.js"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "dotenv": "^17.4.2",
+    "node-notifier": "^10.0.1",
+    "nodemailer": "^10.0.9",
+    "puppeteer": "^23.0.0"
+  },
+  "license": "MIT"
+}
