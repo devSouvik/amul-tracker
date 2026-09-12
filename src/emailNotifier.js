@@ -1,27 +1,30 @@
 /**
  * emailNotifier.js
  *
- * Sends stock-alert emails via SMTP (Gmail or any other provider).
- * All config comes from environment variables — no credentials are
- * hardcoded. Call `isConfigured()` first to check if SMTP is set up;
- * if not, calls to `sendStockAlert` are silent no-ops.
+ * Sends stock-alert emails using one of two providers, chosen automatically:
  *
- * Required env vars
- *   SMTP_HOST      e.g. smtp.gmail.com
- *   SMTP_PORT      587 (STARTTLS) or 465 (SSL)
- *   SMTP_USER      your Gmail address
- *   SMTP_PASS      Gmail App Password (16-char, spaces ok)
- *   NOTIFY_EMAIL   where to send alerts (can equal SMTP_USER)
+ *   1. Resend (preferred for cloud/Railway) — uses HTTPS port 443, never
+ *      blocked by cloud platforms. Set RESEND_API_KEY + RESEND_FROM.
  *
- * Optional
- *   SMTP_FROM      sender label address (defaults to SMTP_USER)
+ *   2. Nodemailer SMTP (fallback, works locally) — set SMTP_HOST / SMTP_USER /
+ *      SMTP_PASS / NOTIFY_EMAIL. Note: SMTP port 587 is often blocked by
+ *      cloud providers; prefer Resend for Railway deployments.
+ *
+ * In both cases NOTIFY_EMAIL controls who receives the alert.
  */
 
 'use strict';
 
 const nodemailer = require('nodemailer');
+const { Resend }  = require('resend');
 
-function isConfigured() {
+// ── Provider detection ───────────────────────────────────────────────────────
+
+function usingResend() {
+  return !!(process.env.RESEND_API_KEY && process.env.RESEND_FROM && process.env.NOTIFY_EMAIL);
+}
+
+function usingSMTP() {
   return !!(
     process.env.SMTP_HOST &&
     process.env.SMTP_USER &&
@@ -30,39 +33,19 @@ function isConfigured() {
   );
 }
 
-function createTransporter() {
-  const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port,
-    secure: port === 465, // true = SSL, false = STARTTLS (port 587)
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+function isConfigured() {
+  return usingResend() || usingSMTP();
 }
 
-/**
- * @param {object} opts
- * @param {string}  opts.productName
- * @param {string}  opts.productUrl
- * @param {string}  opts.pincode
- * @param {boolean} opts.inStock
- * @param {string|null} opts.price
- * @param {boolean} [opts.isStartup=false]  true → sends a "tracker started" email
- */
-async function sendStockAlert({
-  productName,
-  productUrl,
-  pincode,
-  inStock,
-  price,
-  isStartup = false,
-}) {
-  if (!isConfigured()) return;
+function providerName() {
+  if (usingResend()) return 'Resend';
+  if (usingSMTP())   return 'SMTP';
+  return 'none';
+}
 
-  const transporter = createTransporter();
+// ── Email template ───────────────────────────────────────────────────────────
+
+function buildEmail({ productName, productUrl, pincode, inStock, price, isStartup }) {
   const statusLabel = inStock ? 'IN STOCK \u2705' : 'OUT OF STOCK \u274c';
   const statusColor = inStock ? '#22c55e' : '#ef4444';
   const time = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
@@ -85,7 +68,7 @@ async function sendStockAlert({
             \ud83d\uded2 Buy Now &rarr;
           </a>
         </td></tr>
-      </table>`
+       </table>`
     : `<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
         <tr><td align="center">
           <a href="${productUrl}"
@@ -94,7 +77,7 @@ async function sendStockAlert({
             View Product &rarr;
           </a>
         </td></tr>
-      </table>`;
+       </table>`;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -116,9 +99,7 @@ async function sendStockAlert({
             <p style="margin:0;font-size:24px;font-weight:800;color:#1a3c00;letter-spacing:-0.5px;">
               \ud83e\udd5b Amul Stock Tracker
             </p>
-            <p style="margin:6px 0 0;font-size:13px;color:#3a6400;font-weight:500;">
-              ${bodyTitle}
-            </p>
+            <p style="margin:6px 0 0;font-size:13px;color:#3a6400;font-weight:500;">${bodyTitle}</p>
           </td>
         </tr>
 
@@ -164,7 +145,9 @@ async function sendStockAlert({
         <!-- Footer -->
         <tr>
           <td style="padding:16px 36px 20px;border-top:1px solid #f3f4f6;text-align:center;">
-            <p style="margin:0;font-size:12px;color:#d1d5db;">Checked at ${time} IST &middot; amul-tracker</p>
+            <p style="margin:0;font-size:12px;color:#d1d5db;">
+              Checked at ${time} IST &middot; amul-tracker
+            </p>
           </td>
         </tr>
 
@@ -174,12 +157,70 @@ async function sendStockAlert({
 </body>
 </html>`;
 
+  return { subject, html };
+}
+
+// ── Send via Resend ──────────────────────────────────────────────────────────
+
+async function sendViaResend(opts) {
+  const client = new Resend(process.env.RESEND_API_KEY);
+  const { subject, html } = buildEmail(opts);
+
+  const { error } = await client.emails.send({
+    from: process.env.RESEND_FROM,
+    to:   process.env.NOTIFY_EMAIL,
+    subject,
+    html,
+  });
+
+  if (error) {
+    throw new Error(`Resend API error: ${JSON.stringify(error)}`);
+  }
+}
+
+// ── Send via SMTP (nodemailer) ───────────────────────────────────────────────
+
+async function sendViaSMTP(opts) {
+  const port = parseInt(process.env.SMTP_PORT || '587', 10);
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    secure: port === 465,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  const { subject, html } = buildEmail(opts);
+
   await transporter.sendMail({
     from: `"Amul Tracker" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
-    to: process.env.NOTIFY_EMAIL,
+    to:   process.env.NOTIFY_EMAIL,
     subject,
     html,
   });
 }
 
-module.exports = { sendStockAlert, isConfigured };
+// ── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * @param {object}      opts
+ * @param {string}      opts.productName
+ * @param {string}      opts.productUrl
+ * @param {string}      opts.pincode
+ * @param {boolean}     opts.inStock
+ * @param {string|null} opts.price
+ * @param {boolean}     [opts.isStartup=false]
+ */
+async function sendStockAlert(opts) {
+  if (!isConfigured()) return;
+
+  if (usingResend()) {
+    await sendViaResend(opts);
+  } else {
+    await sendViaSMTP(opts);
+  }
+}
+
+module.exports = { sendStockAlert, isConfigured, providerName };

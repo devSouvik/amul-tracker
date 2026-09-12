@@ -8,7 +8,7 @@ const chalk = require('chalk');
 const notifier = require('node-notifier');
 const { checkStock } = require('./src/browserCheck');
 const { loadExportedCookies } = require('./src/cookies');
-const { sendStockAlert, isConfigured } = require('./src/emailNotifier');
+const { sendStockAlert, isConfigured, providerName } = require('./src/emailNotifier');
 
 function parseArgs(argv) {
   // CLI flags take priority; env vars are the fallback for cloud deployments.
@@ -88,15 +88,14 @@ async function main() {
   }
 
   // Log SMTP config status clearly so Railway logs show if something is missing
-  console.log(chalk.gray('[config] SMTP configured: ' + isConfigured()));
+  console.log(chalk.gray('[config] Email provider: ' + providerName()));
   if (isConfigured()) {
     console.log(chalk.cyan('📧 Email notifications enabled → ' + process.env.NOTIFY_EMAIL));
   } else {
-    const missing = ['SMTP_HOST','SMTP_USER','SMTP_PASS','NOTIFY_EMAIL']
-      .filter(k => !process.env[k]);
-    if (missing.length) {
-      console.log(chalk.yellow('[config] Email disabled. Missing env vars: ' + missing.join(', ')));
-    }
+    const missingResend = ['RESEND_API_KEY','RESEND_FROM','NOTIFY_EMAIL'].filter(k => !process.env[k]);
+    const missingSMTP   = ['SMTP_HOST','SMTP_USER','SMTP_PASS','NOTIFY_EMAIL'].filter(k => !process.env[k]);
+    console.log(chalk.yellow('[config] Email disabled. For Resend set: ' + missingResend.join(', ')));
+    console.log(chalk.yellow('[config] Email disabled. For SMTP set:   ' + missingSMTP.join(', ')));
   }
 
   let lastStatus = null;
