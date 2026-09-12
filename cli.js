@@ -87,8 +87,16 @@ async function main() {
     process.exit(1);
   }
 
+  // Log SMTP config status clearly so Railway logs show if something is missing
+  console.log(chalk.gray('[config] SMTP configured: ' + isConfigured()));
   if (isConfigured()) {
     console.log(chalk.cyan('📧 Email notifications enabled → ' + process.env.NOTIFY_EMAIL));
+  } else {
+    const missing = ['SMTP_HOST','SMTP_USER','SMTP_PASS','NOTIFY_EMAIL']
+      .filter(k => !process.env[k]);
+    if (missing.length) {
+      console.log(chalk.yellow('[config] Email disabled. Missing env vars: ' + missing.join(', ')));
+    }
   }
 
   let lastStatus = null;
@@ -165,20 +173,24 @@ async function main() {
   // ── First check ─────────────────────────────────────────────────────────
   await runCheck();
 
-  // ── Send startup email (so you know the deploy is alive) ────────────────
-  if (args.watch && isConfigured() && lastStatus !== null) {
-    // We now know the product name from the first check — pull it from the
-    // result by re-reading the last known state (lastStatus is set above).
-    // We do a best-effort name lookup via a quick page.title read; simpler
-    // to just re-use the url for now since we don't cache productName here.
+  // ── Send startup email (so you know the deploy is alive) ─────────────────
+  // Intentionally NOT gated on lastStatus !== null: even if the first check
+  // failed (e.g. Puppeteer issue), the startup email should still fire so you
+  // know the process is running and SMTP is working.
+  if (args.watch && isConfigured()) {
     sendStockAlert({
       productName: lastProductName || args.url,
       productUrl: args.url,
       pincode: args.pincode,
-      inStock: lastStatus,
+      inStock: lastStatus ?? false,
       price: lastPrice,
       isStartup: true,
-    }).catch(() => {}); // startup email failure is non-fatal
+    }).then(() => {
+      console.log(chalk.cyan('[email] Startup confirmation sent → ' + process.env.NOTIFY_EMAIL));
+    }).catch((err) => {
+      console.error(chalk.red('[email] Startup email FAILED: ' + err.message));
+      console.error(chalk.red('[email] Check SMTP_HOST / SMTP_USER / SMTP_PASS in your Railway Variables'));
+    });
   }
 
   if (args.watch) {
